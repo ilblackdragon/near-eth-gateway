@@ -1,0 +1,25 @@
+[package]
+name = "gateway"
+edition = "2018"
+version = "0.1.0"
+authors = ["Illia Polosukhin <ilblackdragon@gmail.com>"]
+license = "Apache2"
+description = "Account proxy contract"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "3.1.0"
+hex = { version = "0.4", default-features = false, features = ["alloc"] }
+libsecp256k1 = { version = "0.3.5", default-features = false }
+rlp = { version = "0.5.0", default-features = false }
+logos = { version = "0.12", default-features = false, features = ["export_derive"] }
+ethabi = { git = "https://github.com/darwinia-network/ethabi", branch = "xavier-no-std", default-features = false }
+primitive-types = { version = "0.9.0", default-features = false, features = ["rlp"] }
+sha3 = { version = "0.9.1", default-features = false }
+
+[dev-dependencies]
+rand = "0.7.3"
+near-sdk-sim = "3.1.0"

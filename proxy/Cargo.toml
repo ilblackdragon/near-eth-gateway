@@ -1,0 +1,14 @@
+[package]
+name = "proxy"
+edition = "2018"
+version = "0.1.0"
+authors = ["Illia Polosukhin <ilblackdragon@gmail.com>"]
+license = "Apache2"
+description = "Account proxy contract"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wee_alloc = { version = "0.4.5", default-features = false }

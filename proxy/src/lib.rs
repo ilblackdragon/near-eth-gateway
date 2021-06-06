@@ -58,34 +58,47 @@ fn assert_predecessor() {
     }
 }
 
+fn slice_to_u64(s: &[u8]) -> u64 {
+    let mut word = [0u8; 8];
+    word.copy_from_slice(s);
+    u64::from_le_bytes(word)
+}
+
+fn slice_to_u32(s: &[u8]) -> u32 {
+    let mut word = [0u8; 4];
+    word.copy_from_slice(s);
+    u32::from_le_bytes(word)
+}
+
 /// This proxies passed call.
 /// Checks that predecessor is suffix of the given account.
 /// <gas:64><amount:u128><receiver_len:u32><receiver_id:bytes><method_name_len:u32><method_name:bytes><args_len:u32><args:bytes>
-// #[no_mangle]
-// pub extern "C" fn call() {
-//     assert_predecessor();
-//     unsafe {
-//         input(2);
-//         let data = vec![0u8; register_len(2) as usize];
-//         read_register(2, data.as_ptr() as *const u64 as u64);
-//         let gas = data[..8] as u64;
-//         let amount = data[8..24] as u128;
-//         let receiver_len = data[24..28] as u32;
-//         let method_name_len = data[28 + receiver_len..32 + receiver_len] as u32;
-//         let args_len =
-//             data[32 + receiver_len + method_name_len..36 + receiver_len + method_name_len] as u32;
-//         let id = promise_batch_create(receiver_len as _, data.as_ptr() as _ + 28);
-//         promise_batch_action_function_call(
-//             id,
-//             method_name_len as _,
-//             data.as_ptr() as _ + 32 + receiver_len,
-//             args_len as _,
-//             data.as_ptr() as _ + 36 + receiver_len + method_name_len,
-//             amount.as_ptr() as _,
-//             gas,
-//         );
-//     }
-// }
+#[no_mangle]
+pub extern "C" fn call() {
+    assert_predecessor();
+    unsafe {
+        input(2);
+        let data = vec![0u8; register_len(2) as usize];
+        read_register(2, data.as_ptr() as *const u64 as u64);
+        let gas = slice_to_u64(&data[..8]);
+        let amount = &data[8..24]; // as u128;
+        let receiver_len = slice_to_u64(&data[24..28]) as usize;
+        let method_name_len = slice_to_u32(&data[28 + receiver_len..32 + receiver_len]) as usize;
+        let args_len = slice_to_u32(
+            &data[32 + receiver_len + method_name_len..36 + receiver_len + method_name_len],
+        ) as usize;
+        let id = promise_batch_create(receiver_len as _, data.as_ptr() as u64 + 28);
+        promise_batch_action_function_call(
+            id,
+            method_name_len as _,
+            data.as_ptr() as u64 + 32 + receiver_len as u64,
+            args_len as _,
+            data.as_ptr() as u64 + 36 + (receiver_len + method_name_len) as u64,
+            amount.as_ptr() as _,
+            gas,
+        );
+    }
+}
 
 /// Transfers given amount of $NEAR to given account.
 /// Input format <amount:u128><receiver_id:bytes>

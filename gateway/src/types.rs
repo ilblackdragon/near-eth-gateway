@@ -1,6 +1,6 @@
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::{env, Balance};
-use primitive_types::{H160, H256, U256};
+use primitive_types::{H160, U256};
 
 #[cfg(not(target_arch = "wasm32"))]
 use sha3::Digest;
@@ -33,8 +33,9 @@ pub struct InternalMetaCallArgs {
     pub fee_amount: Balance,
     pub fee_address: String,
     pub contract_address: String,
+    pub method_name: String,
     pub value: Balance,
-    pub input: Vec<u8>,
+    pub args: Vec<u8>,
 }
 
 pub fn u256_to_arr(value: &U256) -> [u8; 32] {

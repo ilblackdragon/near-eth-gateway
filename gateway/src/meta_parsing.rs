@@ -506,19 +506,22 @@ where
 pub fn prepare_meta_call_args(
     domain_separator: &RawU256,
     account_id: &[u8],
-    method_def: String,
     input: &InternalMetaCallArgs,
-) -> ParsingResult<(RawU256, Vec<u8>)> {
+) -> ParsingResult<(RawU256, String, Vec<u8>)> {
     let mut bytes = Vec::new();
-    let method_arg_start = match method_def.find('(') {
-        Some(index) => index,
-        None => return Err(ParsingError::InvalidMetaTransactionMethodName),
+    let arguments = if input.method_name.is_empty() {
+        "Arguments()".to_string()
+    } else {
+        // Note: method_def is like "adopt(uint256 petId,PetObj petObj)PetObj(string name,address owner)",
+        // MUST have no space after `,`. EIP-712 requires hashStruct start by packing the typeHash,
+        // See "Rationale for typeHash" in https://eips.ethereum.org/EIPS/eip-712#definition-of-hashstruct
+        // method_def is used here for typeHash
+        let method_arg_start = match input.method_name.find('(') {
+            Some(index) => index,
+            None => return Err(ParsingError::InvalidMetaTransactionMethodName),
+        };
+        "Arguments".to_string() + &input.method_name[method_arg_start..]
     };
-    let arguments = "Arguments".to_string() + &method_def[method_arg_start..];
-    // Note: method_def is like "adopt(uint256 petId,PetObj petObj)PetObj(string name,address owner)",
-    // MUST have no space after `,`. EIP-712 requires hashStruct start by packing the typeHash,
-    // See "Rationale for typeHash" in https://eips.ethereum.org/EIPS/eip-712#definition-of-hashstruct
-    // method_def is used here for typeHash
     let types = "NearTx(string gatewayId,uint256 nonce,uint256 feeAmount,address feeReceiver,address receiver,uint256 value,string method,Arguments arguments)".to_string() + &arguments;
     bytes.extend_from_slice(&keccak256(types.as_bytes()));
     bytes.extend_from_slice(&keccak256(account_id));
@@ -528,40 +531,46 @@ pub fn prepare_meta_call_args(
     bytes.extend_from_slice(&keccak256(input.contract_address.as_bytes()));
     bytes.extend_from_slice(&u256_to_arr(&U256::from(input.value)));
 
-    let methods = MethodAndTypes::parse(&method_def)?;
-    let method_sig = method_signature(&methods);
-    bytes.extend_from_slice(&keccak256(method_sig.as_bytes()));
+    let (method_name, arg_bytes) = if !input.method_name.is_empty() {
+        let methods = MethodAndTypes::parse(&input.method_name)?;
+        let method_sig = method_signature(&methods);
+        bytes.extend_from_slice(&keccak256(method_sig.as_bytes()));
 
-    let mut arg_bytes = Vec::new();
-    arg_bytes.extend_from_slice(&keccak256(arguments.as_bytes()));
-    let args_decoded: Vec<RlpValue> = rlp_decode(&input.input)?;
-    if methods.method.args.len() != args_decoded.len() {
-        return Err(ParsingError::ArgsLengthMismatch);
-    }
-    for (i, arg) in args_decoded.iter().enumerate() {
-        arg_bytes.extend_from_slice(&eip_712_hash_argument(
-            &methods.method.args[i].t,
-            arg,
-            &methods.types,
-        )?);
-    }
+        let mut arg_bytes = Vec::new();
+        arg_bytes.extend_from_slice(&keccak256(arguments.as_bytes()));
+        let args_decoded: Vec<RlpValue> = rlp_decode(&input.args)?;
+        println!("{:?} {:?}", methods.method.args, args_decoded);
+        if methods.method.args.len() != args_decoded.len() {
+            return Err(ParsingError::ArgsLengthMismatch);
+        }
+        for (i, arg) in args_decoded.iter().enumerate() {
+            arg_bytes.extend_from_slice(&eip_712_hash_argument(
+                &methods.method.args[i].t,
+                arg,
+                &methods.types,
+            )?);
+        }
 
-    // ETH-ABI require function selector to use method_sig, instead of method_name,
-    // See https://docs.soliditylang.org/en/v0.7.5/abi-spec.html#function-selector
-    // Above spec is not completely clear, this implementation shows signature is the one without
-    // argument name:
-    // https://github.com/rust-ethereum/ethabi/blob/69285cf6b6202d9faa19c7d0239df6a2bd79d55f/ethabi/src/signature.rs#L28
-    let method_selector = method_sig_to_abi(&method_sig);
-    let args_eth_abi = eth_abi_encode_args(&args_decoded, &methods)?;
-    let input = [method_selector.to_vec(), args_eth_abi.to_vec()].concat();
+        // ETH-ABI require function selector to use method_sig, instead of method_name,
+        // See https://docs.soliditylang.org/en/v0.7.5/abi-spec.html#function-selector
+        // Above spec is not completely clear, this implementation shows signature is the one without
+        // argument name:
+        // https://github.com/rust-ethereum/ethabi/blob/69285cf6b6202d9faa19c7d0239df6a2bd79d55f/ethabi/src/signature.rs#L28
+        let method_selector = method_sig_to_abi(&method_sig);
+        let args_eth_abi = eth_abi_encode_args(&args_decoded, &methods)?;
+        let input = [method_selector.to_vec(), args_eth_abi.to_vec()].concat();
 
-    bytes.extend_from_slice(&keccak256(&arg_bytes));
+        bytes.extend_from_slice(&keccak256(&arg_bytes));
+        (methods.method.name, arg_bytes)
+    } else {
+        ("".to_string(), vec![])
+    };
 
     let mut bytes = Vec::with_capacity(2 + 32 + 32);
     bytes.extend_from_slice(&[0x19, 0x01]);
     bytes.extend_from_slice(domain_separator);
     bytes.extend_from_slice(&keccak256(&bytes));
-    Ok((arr_to_u256(&keccak256(&bytes)), input))
+    Ok((arr_to_u256(&keccak256(&bytes)), method_name, arg_bytes))
 }
 
 /// Parse encoded `MetaCallArgs`, validate with given domain and account and recover the sender's address from the signature.
@@ -583,18 +592,19 @@ pub fn parse_meta_call(
         fee_amount,
         fee_address: meta_tx.fee_address,
         contract_address: meta_tx.contract_address,
+        method_name: meta_tx.method,
         value,
-        input: meta_tx.args,
+        args: meta_tx.args,
     };
-    let (msg, input) =
-        prepare_meta_call_args(domain_separator, account_id, meta_tx.method, &result)?;
+    let (msg, method_name, input) = prepare_meta_call_args(domain_separator, account_id, &result)?;
     let mut signature: [u8; 65] = [0; 65];
     signature[64] = meta_tx.v;
     signature[..64].copy_from_slice(&meta_tx.signature);
     match crate::ecrecover::ecrecover(H256::from_slice(&msg), &signature) {
         Ok(sender) => {
             result.sender = sender;
-            result.input = input;
+            result.method_name = method_name;
+            result.args = input;
             Ok(result)
         }
         Err(_) => Err(ParsingError::InvalidEcRecoverSignature),

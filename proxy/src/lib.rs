@@ -4,6 +4,7 @@
 
 extern crate alloc;
 
+use alloc::format;
 use alloc::{vec, vec::Vec};
 
 #[global_allocator]
@@ -28,6 +29,7 @@ extern "C" {
     fn predecessor_account_id(register_id: u64);
     fn input(register_id: u64);
     fn panic();
+    fn log_utf8(len: u64, ptr: u64);
     fn promise_batch_create(account_id_len: u64, account_id_ptr: u64) -> u64;
     fn promise_batch_action_function_call(
         promise_index: u64,
@@ -40,6 +42,12 @@ extern "C" {
     );
     fn promise_batch_action_deploy_contract(promise_index: u64, code_len: u64, code_ptr: u64);
     fn promise_batch_action_transfer(promise_index: u64, amount_ptr: u64);
+}
+
+fn log(message: &str) {
+    unsafe {
+        log_utf8(message.len() as _, message.as_ptr() as _);
+    }
 }
 
 /// Check that predecessor of given account if suffix of given account.
@@ -78,16 +86,26 @@ pub extern "C" fn call() {
     assert_predecessor();
     unsafe {
         input(2);
+        // log("1");
         let data = vec![0u8; register_len(2) as usize];
+        // log("2");
         read_register(2, data.as_ptr() as *const u64 as u64);
+        // log("3");
         let gas = slice_to_u64(&data[..8]);
+        // log(&format!("{}", gas));
         let amount = &data[8..24]; // as u128;
-        let receiver_len = slice_to_u64(&data[24..28]) as usize;
+                                   // log(&format!("{:?}", amount));
+                                   // log("5");
+        let receiver_len = slice_to_u32(&data[24..28]) as usize;
+        // log("6");
         let method_name_len = slice_to_u32(&data[28 + receiver_len..32 + receiver_len]) as usize;
+        // log("7");
         let args_len = slice_to_u32(
             &data[32 + receiver_len + method_name_len..36 + receiver_len + method_name_len],
         ) as usize;
+        // log("8");
         let id = promise_batch_create(receiver_len as _, data.as_ptr() as u64 + 28);
+        // log("9");
         promise_batch_action_function_call(
             id,
             method_name_len as _,
@@ -97,6 +115,7 @@ pub extern "C" fn call() {
             amount.as_ptr() as _,
             gas,
         );
+        // log("10");
     }
 }
 

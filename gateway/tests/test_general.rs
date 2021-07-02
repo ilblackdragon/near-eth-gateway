@@ -34,22 +34,22 @@ pub fn encode_meta_call_function_args(
     args: Vec<u8>,
 ) -> Vec<u8> {
     let domain_separator = near_erc712_domain(U256::from(chain_id));
-    let (msg, _) = match prepare_meta_call_args(
+    let (msg, _, _) = match prepare_meta_call_args(
         &domain_separator,
         "gateway".as_bytes(),
-        method_def.to_string(),
         &InternalMetaCallArgs {
             sender: Address::zero(),
             nonce,
             fee_amount,
             fee_address: fee_address.clone(),
             contract_address: contract_address.clone(),
+            method_name: method_def.to_string(),
             value,
-            input: args.clone(),
+            args: args.clone(),
         },
     ) {
         Ok(x) => x,
-        Err(_) => panic!("Failed to prepare"),
+        Err(err) => panic!("Failed to prepare: {:?}", err),
     };
     match signer.sign(&msg) {
         Signature::ED25519(_) => panic!("Wrong Signer"),
@@ -106,7 +106,13 @@ impl Wallet {
         }
     }
 
-    pub fn message(&mut self, receiver_id: &str, value: Balance, method_def: &str) -> Base64VecU8 {
+    pub fn message(
+        &mut self,
+        receiver_id: &str,
+        value: Balance,
+        method_def: &str,
+        args: Vec<u8>,
+    ) -> Base64VecU8 {
         let result = encode_meta_call_function_args(
             &self.signer,
             self.chain_id,
@@ -116,7 +122,11 @@ impl Wallet {
             receiver_id.to_string(),
             value,
             method_def,
-            vec![],
+            if args.is_empty() {
+                vec![]
+            } else {
+                rlp::encode_list::<Vec<u8>, _>(&[args]).to_vec()
+            },
         );
         self.nonce += U256::one();
         Base64VecU8(result)
@@ -124,12 +134,19 @@ impl Wallet {
 }
 
 fn assert_success(result: ExecutionResult) {
+    for promise in result.promise_results() {
+        let p = promise.unwrap();
+        println!("{:?}", p);
+        println!(
+            "{}Tg, {:?} {:?}",
+            p.gas_burnt() / 1_000_000_000_000,
+            p.status(),
+            p.logs()
+        );
+    }
     match result.is_ok() {
         true => {}
         false => {
-            for promise in result.promise_results() {
-                println!("{:?}", promise);
-            }
             result.assert_success();
         }
     }
@@ -138,16 +155,16 @@ fn assert_success(result: ExecutionResult) {
 #[test]
 fn test_basics() {
     let root = init_simulator(None);
-    let user2 = root.create_user("user2".to_string(), to_yocto("1"));
+    let user2 = root.create_user("user2".to_string(), to_yocto("100"));
     let gateway = deploy!(contract: Contract, contract_id: "test".to_string(), bytes: &GATEWAY_WASM, signer_account: root, init_method: new());
 
     let mut wallet = Wallet::new();
-    let message = wallet.message("", 0, "create()");
+    let message = wallet.message("", 0, "create()", vec![]);
 
     call!(
         root,
         gateway.create(message),
-        deposit = 165630000000000000000000
+        deposit = to_yocto("5") // 165630000000000000000000
     )
     .assert_success();
 
@@ -158,10 +175,18 @@ fn test_basics() {
     let acc = root.borrow_runtime().view_account(&new_account).unwrap();
     println!("{:?}", acc);
 
-    let message = wallet.message("user2", to_yocto("1"), "transfer()");
+    let message = wallet.message("user2", to_yocto("1"), "", vec![]);
     assert_success(call!(root, gateway.proxy(message), gas = 100 * TGAS));
-    assert_eq!(
-        root.borrow_runtime().view_account("user2").unwrap().amount,
-        to_yocto("2")
+    // assert_eq!(
+    //     root.borrow_runtime().view_account("user2").unwrap().amount,
+    //     to_yocto("2")
+    // );
+
+    let message = wallet.message(
+        "test",
+        to_yocto("1"),
+        "test_call(bytes args)",
+        "{\"x\": 1, \"y\": \"test\"}".as_bytes().to_vec(),
     );
+    assert_success(call!(root, gateway.proxy(message), gas = 100 * TGAS));
 }

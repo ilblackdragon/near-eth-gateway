@@ -27,6 +27,15 @@ pub struct Contract {
     nonces: LookupMap<RawAddress, RawU256>,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
+struct CallArgs {
+    gas: u64,
+    amount: u128,
+    receiver_id: String,
+    method_name: String,
+    args: Vec<u8>,
+}
+
 #[near_bindgen]
 impl Contract {
     #[init]
@@ -69,20 +78,42 @@ impl Contract {
 
     pub fn proxy(&mut self, message: Base64VecU8) -> Promise {
         let args = self.parse_message(message);
-        let mut transfer_args = vec![0u8; 16 + args.contract_address.len()];
-        transfer_args[..16].copy_from_slice(&args.value.to_le_bytes());
-        transfer_args[16..].copy_from_slice(args.contract_address.as_bytes());
         let account_id = format!("{}.{}", hex::encode(args.sender), env::current_account_id());
-        Promise::new(account_id).function_call(
-            "transfer".as_bytes().to_vec(),
-            transfer_args,
-            0,
-            TGAS * 10,
-            // env::prepaid_gas() - GAS_FOR_PROXY,
-        )
+        let used_gas = env::used_gas();
+        if args.method_name.is_empty() {
+            let mut transfer_args = vec![0u8; 16 + args.contract_address.len()];
+            transfer_args[..16].copy_from_slice(&args.value.to_le_bytes());
+            transfer_args[16..].copy_from_slice(args.contract_address.as_bytes());
+            Promise::new(account_id).function_call(
+                "transfer".as_bytes().to_vec(),
+                transfer_args,
+                0,
+                env::prepaid_gas() - used_gas - GAS_FOR_PROXY,
+            )
+        } else {
+            let call_args = CallArgs {
+                gas: TGAS * 20,
+                amount: args.value,
+                receiver_id: args.contract_address,
+                method_name: args.method_name,
+                args: args.args,
+            };
+            let call_args_bytes = call_args.try_to_vec().unwrap();
+            Promise::new(account_id).function_call(
+                "call".as_bytes().to_vec(),
+                call_args_bytes,
+                0,
+                env::prepaid_gas() - used_gas - GAS_FOR_PROXY,
+            )
+        }
     }
 
     // pub fn update(&self, message: Base64VecU8) -> Promise {
     //     Promise::new(account_id).function_call("update", )
     // }
+
+    // TODO: just for test purposes
+    pub fn test_call(&self, x: u64, y: String) -> u64 {
+        x + y.len() as u64
+    }
 }

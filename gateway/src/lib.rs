@@ -6,7 +6,7 @@ use primitive_types::U256;
 
 pub use crate::meta_parsing::{near_erc712_domain, prepare_meta_call_args};
 pub use crate::types::{u256_to_arr, InternalMetaCallArgs, MetaCallArgs};
-use crate::types::{Address, RawAddress, RawU256};
+use crate::types::{RawAddress, RawU256};
 
 mod ecrecover;
 mod meta_parsing;

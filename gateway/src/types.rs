@@ -1,6 +1,9 @@
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::{env, Balance};
+use near_sdk::Balance;
 use primitive_types::{H160, U256};
+
+#[cfg(target_arch = "wasm32")]
+use near_sdk::env;
 
 #[cfg(not(target_arch = "wasm32"))]
 use sha3::Digest;

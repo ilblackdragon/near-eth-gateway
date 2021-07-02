@@ -1,14 +1,6 @@
 use ethabi::Address;
 use primitive_types::H256;
 
-mod costs {
-    pub(super) const ECRECOVER_BASE: u64 = 3_000;
-}
-
-mod consts {
-    pub(super) const INPUT_LEN: usize = 128;
-}
-
 /// See: https://ethereum.github.io/yellowpaper/paper.pdf
 /// See: https://docs.soliditylang.org/en/develop/units-and-global-variables.html#mathematical-and-cryptographic-functions
 /// See: https://etherscan.io/address/0000000000000000000000000000000000000001

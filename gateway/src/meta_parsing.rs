@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 
-use ethabi::{encode, Token as ABIToken};
 use logos::Logos;
 use near_sdk::borsh::BorshDeserialize;
-use near_sdk::env;
 use primitive_types::{H256, U256};
 use rlp::{Decodable, DecoderError, Rlp};
 
@@ -153,22 +151,9 @@ pub fn near_erc712_domain(chain_id: U256) -> RawU256 {
     arr_to_u256(&keccak256(&bytes))
 }
 
-/// method_sig: format like "adopt(uint256,PetObj)" (no additional PetObj definition)
-pub fn method_sig_to_abi(method_sig: &str) -> [u8; 4] {
-    let mut result = [0u8; 4];
-    result.copy_from_slice(&keccak256(method_sig.as_bytes())[..4]);
-    result
-}
-
 pub fn encode_address(addr: Address) -> Vec<u8> {
     let mut bytes = vec![0u8; 12];
     bytes.extend_from_slice(&addr.0);
-    bytes
-}
-
-pub fn encode_string(s: &str) -> Vec<u8> {
-    let mut bytes = vec![];
-    bytes.extend_from_slice(&keccak256(s.as_bytes()));
     bytes
 }
 
@@ -421,87 +406,6 @@ where
     }
 }
 
-fn eth_abi_encode_args(
-    args_decoded: &[RlpValue],
-    methods: &MethodAndTypes,
-) -> ParsingResult<Vec<u8>> {
-    let mut tokens = vec![];
-    for (i, arg) in args_decoded.iter().enumerate() {
-        tokens.push(arg_to_abi_token(&methods.method.args[i].t, arg, methods)?);
-    }
-    Ok(encode(&tokens))
-}
-
-fn arg_to_abi_token(
-    ty: &ArgType,
-    arg: &RlpValue,
-    methods: &MethodAndTypes,
-) -> ParsingResult<ABIToken> {
-    match ty {
-        ArgType::String | ArgType::Bytes => {
-            value_to_abi_token(arg, |b| Ok(ABIToken::Bytes(b.clone())))
-        }
-        ArgType::Byte(_) => value_to_abi_token(arg, |b| Ok(ABIToken::FixedBytes(b.clone()))),
-        ArgType::Uint | ArgType::Int | ArgType::Bool => {
-            value_to_abi_token(arg, |b| Ok(ABIToken::Uint(U256::from_big_endian(&b))))
-        }
-        ArgType::Address => {
-            value_to_abi_token(arg, |b| Ok(ABIToken::Address(Address::from_slice(b))))
-        }
-        ArgType::Array {
-            inner,
-            length: None,
-        } => list_to_abi_token(arg, |l| {
-            let mut tokens = vec![];
-            for arg in l {
-                tokens.push(arg_to_abi_token(inner, arg, methods)?);
-            }
-            Ok(ABIToken::Array(tokens))
-        }),
-        ArgType::Array {
-            inner,
-            length: Some(_),
-        } => list_to_abi_token(arg, |l| {
-            let mut tokens = vec![];
-            for arg in l {
-                tokens.push(arg_to_abi_token(inner, arg, methods)?);
-            }
-            Ok(ABIToken::FixedArray(tokens))
-        }),
-        ArgType::Custom(type_name) => list_to_abi_token(arg, |l| {
-            let struct_type = methods
-                .types
-                .get(type_name)
-                .ok_or(ParsingError::InvalidMetaTransactionFunctionArg)?;
-            let mut tokens = vec![];
-            for (i, element) in l.iter().enumerate() {
-                tokens.push(arg_to_abi_token(&struct_type.args[i].t, element, methods)?);
-            }
-            Ok(ABIToken::Tuple(tokens))
-        }),
-    }
-}
-
-fn value_to_abi_token<F>(value: &RlpValue, f: F) -> ParsingResult<ABIToken>
-where
-    F: Fn(&Vec<u8>) -> ParsingResult<ABIToken>,
-{
-    match value {
-        RlpValue::List(_) => Err(ParsingError::InvalidMetaTransactionFunctionArg),
-        RlpValue::Bytes(b) => f(b),
-    }
-}
-
-fn list_to_abi_token<F>(value: &RlpValue, f: F) -> ParsingResult<ABIToken>
-where
-    F: Fn(&Vec<RlpValue>) -> ParsingResult<ABIToken>,
-{
-    match value {
-        RlpValue::Bytes(_) => Err(ParsingError::InvalidMetaTransactionFunctionArg),
-        RlpValue::List(l) => f(l),
-    }
-}
-
 /// eip-712 hash struct of entire meta txn and abi-encode function args to evm input
 pub fn prepare_meta_call_args(
     domain_separator: &RawU256,
@@ -539,7 +443,6 @@ pub fn prepare_meta_call_args(
         let mut arg_bytes = Vec::new();
         arg_bytes.extend_from_slice(&keccak256(arguments.as_bytes()));
         let args_decoded: Vec<RlpValue> = rlp_decode(&input.args)?;
-        println!("{:?} {:?}", methods.method.args, args_decoded);
         if methods.method.args.len() != args_decoded.len() {
             return Err(ParsingError::ArgsLengthMismatch);
         }
@@ -550,16 +453,6 @@ pub fn prepare_meta_call_args(
                 &methods.types,
             )?);
         }
-
-        // ETH-ABI require function selector to use method_sig, instead of method_name,
-        // See https://docs.soliditylang.org/en/v0.7.5/abi-spec.html#function-selector
-        // Above spec is not completely clear, this implementation shows signature is the one without
-        // argument name:
-        // https://github.com/rust-ethereum/ethabi/blob/69285cf6b6202d9faa19c7d0239df6a2bd79d55f/ethabi/src/signature.rs#L28
-        let method_selector = method_sig_to_abi(&method_sig);
-        let args_eth_abi = eth_abi_encode_args(&args_decoded, &methods)?;
-        let input = [method_selector.to_vec(), args_eth_abi.to_vec()].concat();
-
         bytes.extend_from_slice(&keccak256(&arg_bytes));
         (methods.method.name, arg_bytes)
     } else {

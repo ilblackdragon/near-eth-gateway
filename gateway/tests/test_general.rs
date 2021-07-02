@@ -1,4 +1,4 @@
-use near_sdk_sim::{call, deploy, init_simulator, to_yocto, ExecutionResult, UserAccount};
+use near_sdk_sim::{call, deploy, init_simulator, to_yocto, ExecutionResult};
 
 use ethabi::Address;
 use gateway::{
@@ -9,12 +9,8 @@ use near_sdk::json_types::Base64VecU8;
 use near_sdk::{Balance, Gas};
 use near_sdk_sim::borsh::BorshSerialize;
 use near_sdk_sim::near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
-use near_sdk_sim::runtime::init_runtime;
-use near_sdk_sim::transaction::ExecutionStatus::{SuccessReceiptId, SuccessValue};
 use primitive_types::{H256, U256};
 use sha3::Digest;
-use std::cell::RefCell;
-use std::rc::Rc;
 
 near_sdk_sim::lazy_static_include::lazy_static_include_bytes! {
     GATEWAY_WASM => "../res/gateway.wasm"
@@ -155,7 +151,7 @@ fn assert_success(result: ExecutionResult) {
 #[test]
 fn test_basics() {
     let root = init_simulator(None);
-    let user2 = root.create_user("user2".to_string(), to_yocto("100"));
+    let _user2 = root.create_user("user2".to_string(), to_yocto("100"));
     let gateway = deploy!(contract: Contract, contract_id: "test".to_string(), bytes: &GATEWAY_WASM, signer_account: root, init_method: new());
 
     let mut wallet = Wallet::new();
@@ -177,10 +173,10 @@ fn test_basics() {
 
     let message = wallet.message("user2", to_yocto("1"), "", vec![]);
     assert_success(call!(root, gateway.proxy(message), gas = 100 * TGAS));
-    // assert_eq!(
-    //     root.borrow_runtime().view_account("user2").unwrap().amount,
-    //     to_yocto("2")
-    // );
+    assert_eq!(
+        root.borrow_runtime().view_account("user2").unwrap().amount,
+        to_yocto("101")
+    );
 
     let message = wallet.message(
         "test",

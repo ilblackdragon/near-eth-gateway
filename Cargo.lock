@@ -1816,6 +1816,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nesdie"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f983dd9af3e62440e9067bc08ae479fb2839b413917555d4f73b2b96c0ca63a3"
+dependencies = [
+ "wee_alloc",
+]
+
+[[package]]
 name = "nix"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2144,7 +2153,7 @@ checksum = "45604fc7a88158e7d514d8e22e14ac746081e7a70d7690074dd0029ee37458d6"
 name = "proxy"
 version = "0.1.0"
 dependencies = [
- "wee_alloc",
+ "nesdie",
 ]
 
 [[package]]
